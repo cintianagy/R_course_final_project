@@ -1,0 +1,300 @@
+---
+title: "Final Project"
+author: "Cintia Anna Nagy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Import packages
+
+```{r, message = FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tidyverse)
+library(gtools)
+library(psych)
+library(corrplot)
+library(jtools)
+library(echoice2)
+library(lme4)
+library(broom)
+library(performance)
+library(sjPlot)
+library(nortest)
+
+theme_set(theme_apa())
+```
+
+# Load data
+
+```{r, message = FALSE}
+raw_data <- read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-07-13/scoobydoo.csv')
+```
+
+# Exploratory data analysis
+## Checking the structure and coding errors
+   
+```{r}
+View(raw_data)
+```
+
+```{r}
+glimpse(raw_data)
+```
+
+```{r}
+summary(raw_data)
+```
+```{r}
+sum(is.na(raw_data))
+```
+```{r}
+data_clean <- raw_data
+```
+
+```{r}
+data_clean$imdb <- as.numeric(data_clean$imdb)
+```
+
+```{r}
+data_clean <- data_clean %>% 
+  mutate(date_aired = as.POSIXct(date_aired, format="%Y-%m-%d"))
+```
+
+```{r}
+sum(is.na(data_clean))
+```
+
+```{r}
+data_clean <- data_clean %>% 
+  drop_na()
+```
+
+```{r}
+data_clean %>% 
+  mutate(year = format(date_aired, format = "Y%"))
+```
+
+## Number of episodes per year
+
+```{r}
+data_clean <- data_clean %>% 
+  mutate(year = format(date_aired, format = "%Y")) %>% 
+  mutate(year = as.numeric(year))
+
+ggplot(data_clean, aes(x = year)) +
+  geom_histogram() +
+  labs(x = "Year",
+       y = "Number of episode",
+       title = "Episodes per year")
+```
+
+## Ratings per year
+
+```{r}
+ggplot(data_clean, aes(x = year, y = imdb)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+  labs(x = "Year",
+       y = "Rating",
+       title = "Rating per year")
+```
+
+## Which setting is the most popular?
+
+```{r}
+data_clean %>% 
+  ggplot(aes(x = setting_terrain, y = imdb)) +
+  geom_boxplot() +
+  labs(x = "Settings",
+       y = "Ratings",
+       title = "Popularity of different settings")
+```
+## What about the famous catchphrases?
+
+```{r}
+# convert into numeric variables
+data_clean <- data_clean %>% 
+  mutate(jeepers = as.numeric(jeepers),
+         jinkies = as.numeric(jinkies),
+         zoinks = as.numeric(zoinks),
+         groovy = as.numeric(groovy),
+         scooby_doo_where_are_you = as.numeric(scooby_doo_where_are_you),
+         rooby_rooby_roo = as.numeric(rooby_rooby_roo))
+
+# check range
+data_clean %>% 
+  select(c("jeepers", "jinkies", "zoinks", "groovy", "scooby_doo_where_are_you", "rooby_rooby_roo")) %>%
+  na.replace(0) %>% 
+  summary()
+```
+
+```{r}
+data_clean %>% 
+  ggplot(aes(x = jeepers, y = imdb)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Times jeepers said",
+       y = "Ratings",
+       title = "Rating vs jeepers")
+```
+```{r}
+data_clean %>% 
+  ggplot(aes(x = jinkies, y = imdb)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Times jinkies said",
+       y = "Ratings",
+       title = "Rating vs jinkies")
+
+```
+
+```{r}
+data_clean %>% 
+  ggplot(aes(x = zoinks, y = imdb)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Times zoinks said",
+       y = "Ratings",
+       title = "Rating vs zoinks")
+```
+```{r}
+data_clean %>% 
+  ggplot(aes(x = groovy, y = imdb)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Times groovy said",
+       y = "Ratings",
+       title = "Rating vs groovy")
+```
+```{r}
+data_clean %>% 
+  ggplot(aes(x = scooby_doo_where_are_you, y = imdb)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Times scooby doo where are you said",
+       y = "Ratings",
+       title = "Rating vs scooby do where are you")
+```
+```{r}
+data_clean %>% 
+  ggplot(aes(x = rooby_rooby_roo, y = imdb)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Times rooby rooby roo said",
+       y = "Ratings",
+       title = "Rating vs rooby rooby roo")
+```
+## Which monster type is the most popular?
+
+```{r}
+data_clean_long <- data_clean %>% 
+  separate_rows(monster_type, sep = ",") %>% 
+  drop_na()
+
+data_clean_long %>% 
+  group_by(monster_type) %>% 
+  summarise(mean_rating = mean(imdb)) %>% 
+  arrange(desc(mean_rating))
+```
+
+## Is popularity influenced by the actions of the characters? (who caught the monster, who was captured by the monster, who unmasked the monster, who ate the snack)
+
+```{r}
+data_clean_long <- data_clean_long %>% 
+  pivot_longer(cols = c("caught_fred", "caught_daphnie", "caught_velma", "caught_shaggy", "caught_scooby"), names_to = "caught", names_prefix = "caught_", values_to = "caught_value") %>%
+  filter(caught_value == "TRUE") %>%
+  pivot_longer(cols = c("captured_fred", "captured_daphnie", "captured_velma", "captured_shaggy", "captured_scooby"), names_to = "captured", names_prefix = "captured_", values_to = "captured_value") %>% 
+  filter(captured_value == "TRUE") %>%
+  pivot_longer(cols = c("unmask_fred", "unmask_daphnie", "unmask_velma", "unmask_shaggy", "unmask_scooby"), names_to = "unmask", names_prefix = "unmask_", values_to = "unmask_value") %>%
+  filter(unmask_value == "TRUE") %>%
+  pivot_longer(cols = c("snack_fred", "snack_daphnie", "snack_velma", "snack_shaggy", "snack_scooby"), names_to = "snack", names_prefix = "snack_", values_to = "snack_value") %>% 
+  filter(snack_value == "TRUE")
+```
+
+```{r}
+data_clean_long %>% 
+  ggplot(aes(x = caught, y = imdb)) +
+  geom_boxplot() +
+  labs(x = "Who caught the monster?",
+       y = "Ratings",
+       title = "Rating vs who chaught the monster")
+```
+```{r}
+data_clean_long %>% 
+  ggplot(aes(x = captured, y = imdb)) +
+  geom_boxplot() +
+  labs(x = "Who was captured by the monster?",
+       y = "Ratings",
+       title = "Rating vs Who was captured by the monster")
+```
+```{r}
+data_clean_long %>% 
+  ggplot(aes(x = unmask, y = imdb)) +
+  geom_boxplot() +
+  labs(x = "Who unmasked by the monster?",
+       y = "Ratings",
+       title = "Rating vs Who unmasked the monster")
+```
+```{r}
+data_clean_long %>% 
+  ggplot(aes(x = snack, y = imdb)) +
+  geom_boxplot() +
+  labs(x = "Who ate the snack?",
+       y = "Ratings",
+       title = "Rating vs Who ate the snack")
+```
+Based on the plots, there is no association between ratings and the actions of the characters.
+
+# Statistical models
+## Research question
+    Is the higher occurrence of catchphrases (jeepers, jinkies, zoinks, groovy, scooby_doo_where_are_you, rooby_rooby_roo) influences the rating of the episode?
+    
+## Model building 
+
+```{r}
+model_1 <- lm(imdb ~ jeepers + jinkies + zoinks + groovy + scooby_doo_where_are_you + rooby_rooby_roo, data_clean)
+
+summary(model_1)
+tab_model(model_1, show.std = TRUE)
+check_model(model_1)
+```
+```{r}
+model_2 <- lm(imdb ~ jinkies + rooby_rooby_roo, data_clean)
+
+summary(model_2)
+tab_model(model_2, show.std = TRUE)
+check_model(model_2)
+```
+
+```{r}
+AIC_1 <- AIC(model_1)
+AIC_2 <- AIC(model_2)
+BIC_1 <- BIC(model_1)
+BIC_2 <- BIC(model_2)
+
+print(paste("AIC of model_1:", AIC_1))
+print(paste("AIC of model_2:", AIC_2))
+print(paste("BIC of model_1:", BIC_1))
+print(paste("BIC of model_2:", BIC_2))
+```
+Based on the AIC ans BIC, the model with the best performance is the model_2
+
+## Reporting the final model
+
+```{r}
+final_model <- model_2
+
+check_model(final_model)
+
+tab_model(final_model, show.std = TRUE)
+```
+# Discussion
+
+In the final model the *jinkies* and *rooby-rooby-roo* variables were significant (p < 0.001: the more they occurred in the episode, the lower rating the episode got. However the model only explained 17.3 % from the variance (based on the adjusted R2) and also not all of the assumptions are met (homogeneity of variance, normality of residuals).
